@@ -76,6 +76,24 @@ def test_calculate_historical_var_raises_value_error_for_invalid_confidence():
         calculate_historical_var(portfolio_returns, confidence_level=1.00)
 
 
+def test_calculate_historical_var_rejects_empty_returns():
+    with pytest.raises(ValueError, match="at least one finite value"):
+        calculate_historical_var(pd.Series(dtype=float))
+
+
+def test_calculate_historical_var_rejects_returns_without_finite_values():
+    with pytest.raises(ValueError, match="at least one finite value"):
+        calculate_historical_var(pd.Series([float("nan"), float("inf")]))
+
+
+def test_calculate_historical_var_drops_isolated_non_finite_values():
+    result = calculate_historical_var(
+        pd.Series([-0.10, -0.05, 0.05, float("nan"), float("inf")])
+    )
+
+    assert result == pytest.approx(0.095)
+
+
 def test_calculate_stress_test_loss_from_simple_weighted_shock():
     """Calculate known weighted stress impact and stressed portfolio value."""
     weights = {"ALPHA": 0.60, "BETA": 0.40}

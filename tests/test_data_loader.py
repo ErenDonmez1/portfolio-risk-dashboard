@@ -17,7 +17,6 @@ from src.data_loader import (
 
 
 def test_load_price_data_loads_sample_csv():
-    """Load the sample CSV and return sorted price data with datetime dates."""
     data = load_price_data("data/sample_prices.csv")
 
     assert list(data.columns) == ["Date", "Ticker", "Close"]
@@ -29,7 +28,6 @@ def test_load_price_data_loads_sample_csv():
 
 
 def test_load_price_data_raises_value_error_for_missing_columns(tmp_path):
-    """Raise a clear error when the CSV does not contain all required columns."""
     bad_csv = tmp_path / "missing_close.csv"
     bad_csv.write_text("Date,Ticker\n2026-01-02,ALPHA\n", encoding="utf-8")
 
@@ -38,20 +36,17 @@ def test_load_price_data_raises_value_error_for_missing_columns(tmp_path):
 
 
 def test_parse_ticker_list_cleans_and_deduplicates_tickers():
-    """Parse comma-separated tickers into uppercase unique symbols."""
     result = parse_ticker_list(" aapl, MSFT, aapl, shel.l ")
 
     assert result == ["AAPL", "MSFT", "SHEL.L"]
 
 
 def test_parse_ticker_list_raises_value_error_for_empty_input():
-    """Raise a clear error when no ticker symbols are entered."""
     with pytest.raises(ValueError, match="Enter at least one ticker symbol"):
         parse_ticker_list(" , ")
 
 
 def test_fetch_yfinance_price_data_formats_multiple_tickers(monkeypatch):
-    """Format mocked multi-ticker yfinance data into long price format."""
     dates = pd.to_datetime(["2026-01-01", "2026-01-02"])
     columns = pd.MultiIndex.from_tuples(
         [
@@ -90,7 +85,6 @@ def test_fetch_yfinance_price_data_formats_multiple_tickers(monkeypatch):
 
 
 def test_fetch_yfinance_price_data_formats_single_ticker(monkeypatch):
-    """Format mocked single-ticker yfinance data into long price format."""
     raw_data = pd.DataFrame(
         {"Close": [100.0, None, 102.0]},
         index=pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
@@ -116,7 +110,6 @@ def test_fetch_yfinance_price_data_formats_single_ticker(monkeypatch):
 
 
 def test_fetch_yfinance_price_data_raises_value_error_for_empty_download(monkeypatch):
-    """Raise a clear error when yfinance returns no rows."""
     monkeypatch.setitem(
         sys.modules,
         "yfinance",

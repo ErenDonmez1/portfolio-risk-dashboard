@@ -1,10 +1,12 @@
 """Portfolio weighting and aggregation helpers for the Portfolio Risk Dashboard."""
 
+import math
+
 import pandas as pd
 
 
 def validate_weights(weights: dict, tickers: list) -> None:
-    """Validate that portfolio weights cover all tickers and add up to 1.
+    """Validate that weights are complete, finite, non-negative and total 1.
 
     Portfolio weights describe how much of the portfolio is invested in each
     asset. For example, a weight of 0.60 means 60% of the money is invested in
@@ -15,7 +17,18 @@ def validate_weights(weights: dict, tickers: list) -> None:
         missing = ", ".join(missing_tickers)
         raise ValueError(f"Missing weight(s) for ticker(s): {missing}")
 
-    total_weight = sum(weights[ticker] for ticker in tickers)
+    selected_weights = [weights[ticker] for ticker in tickers]
+    try:
+        all_finite = all(math.isfinite(weight) for weight in selected_weights)
+    except TypeError as error:
+        raise ValueError("Portfolio weights must be finite numbers") from error
+
+    if not all_finite:
+        raise ValueError("Portfolio weights must be finite numbers")
+    if any(weight < 0 for weight in selected_weights):
+        raise ValueError("Portfolio weights must not be negative")
+
+    total_weight = sum(selected_weights)
     if abs(total_weight - 1.0) > 0.000001:
         raise ValueError(f"Portfolio weights must sum to 1. Current sum: {total_weight}")
 

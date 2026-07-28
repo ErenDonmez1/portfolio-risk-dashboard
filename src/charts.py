@@ -5,7 +5,9 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import PercentFormatter, StrMethodFormatter
+from matplotlib.ticker import FuncFormatter, PercentFormatter
+
+from src.formatting import format_currency
 
 
 CHART_COLORS = [
@@ -38,7 +40,6 @@ plt.rcParams.update(
 
 
 def _apply_clean_axis_style(axis):
-    """Apply simple dashboard-friendly styling to a matplotlib axis."""
     axis.set_axisbelow(True)
     axis.set_facecolor(CHART_BACKGROUND)
     axis.grid(True, linestyle="--", linewidth=0.7, color=GRID_COLOR, alpha=0.78)
@@ -58,7 +59,6 @@ def _apply_clean_axis_style(axis):
 
 
 def _style_legend(legend):
-    """Style matplotlib legends for the light dashboard theme."""
     if legend is None:
         return
 
@@ -72,7 +72,6 @@ def _style_legend(legend):
 
 
 def _style_colorbar(colorbar):
-    """Style a matplotlib colorbar so it remains readable on light charts."""
     colorbar.outline.set_edgecolor(SPINE_COLOR)
     colorbar.ax.set_facecolor(CHART_BACKGROUND)
     colorbar.ax.tick_params(colors=MUTED_TEXT_COLOR, labelsize=9)
@@ -84,7 +83,6 @@ def _style_colorbar(colorbar):
 
 
 def _create_light_figure(width: float = 9, height: float = 4.6):
-    """Create a matplotlib figure and axis using the dashboard light surface."""
     figure, axis = plt.subplots(figsize=(width, height))
     figure.patch.set_facecolor(CHART_BACKGROUND)
     figure.patch.set_alpha(1.0)
@@ -94,7 +92,6 @@ def _create_light_figure(width: float = 9, height: float = 4.6):
 
 
 def _finish_light_figure(figure, axis):
-    """Keep all visible matplotlib text readable on the light dashboard theme."""
     _apply_clean_axis_style(axis)
     figure.tight_layout()
 
@@ -220,7 +217,9 @@ def plot_monte_carlo_paths(simulation_df):
     axis.set_title("Monte Carlo risk simulation")
     axis.set_xlabel("Simulated trading days")
     axis.set_ylabel("Portfolio value")
-    axis.yaxis.set_major_formatter(StrMethodFormatter("${x:,.0f}"))
+    axis.yaxis.set_major_formatter(
+        FuncFormatter(lambda value, _position: format_currency(value))
+    )
     _style_legend(
         axis.legend(
             handles=[percentile_band, median_line],

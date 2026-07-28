@@ -24,7 +24,6 @@ from src.charts import (
 
 
 def test_plot_cumulative_returns_returns_figure():
-    """Return a matplotlib Figure for cumulative returns."""
     cumulative_returns = pd.DataFrame(
         {"ALPHA": [0.00, 0.10], "BETA": [0.00, -0.05]},
         index=pd.to_datetime(["2026-01-01", "2026-01-02"]),
@@ -37,7 +36,6 @@ def test_plot_cumulative_returns_returns_figure():
 
 
 def test_plot_drawdowns_returns_figure():
-    """Return a matplotlib Figure for drawdowns."""
     drawdowns = pd.DataFrame(
         {"ALPHA": [0.00, -0.10], "BETA": [0.00, -0.05]},
         index=pd.to_datetime(["2026-01-01", "2026-01-02"]),
@@ -50,7 +48,6 @@ def test_plot_drawdowns_returns_figure():
 
 
 def test_plot_correlation_matrix_returns_figure():
-    """Return a matplotlib Figure for a return correlation matrix."""
     returns = pd.DataFrame(
         {"ALPHA": [0.01, 0.02, -0.01], "BETA": [0.00, 0.03, -0.02]}
     )
@@ -62,7 +59,6 @@ def test_plot_correlation_matrix_returns_figure():
 
 
 def test_plot_monte_carlo_paths_returns_figure():
-    """Return a matplotlib Figure for Monte Carlo simulation paths."""
     simulations = pd.DataFrame(
         {
             "Simulation 1": [1000, 1010, 1020],
@@ -77,7 +73,6 @@ def test_plot_monte_carlo_paths_returns_figure():
 
 
 def test_plot_monte_carlo_paths_uses_compact_summary_legend():
-    """Avoid a large legend entry for every Monte Carlo simulation path."""
     simulations = pd.DataFrame(
         {
             f"Simulation {number}": [1000, 1000 + number, 1010 + number]
@@ -97,7 +92,6 @@ def test_plot_monte_carlo_paths_uses_compact_summary_legend():
 
 
 def test_plot_monte_carlo_paths_limits_background_lines_to_10():
-    """Keep the Monte Carlo chart compact even with many simulations."""
     simulations = pd.DataFrame(
         {
             f"Simulation {number}": [1000, 1000 + number, 1010 + number]
@@ -112,8 +106,22 @@ def test_plot_monte_carlo_paths_limits_background_lines_to_10():
     plt.close(figure)
 
 
+def test_monte_carlo_axis_uses_sterling_currency():
+    simulation_data = pd.DataFrame(
+        {
+            "Simulation 1": [10000.0, 10100.0],
+            "Simulation 2": [10000.0, 9900.0],
+        }
+    )
+
+    figure = plot_monte_carlo_paths(simulation_data)
+    formatter = figure.axes[0].yaxis.get_major_formatter()
+
+    assert formatter(10000, 0) == "£10,000.00"
+    plt.close(figure)
+
+
 def test_chart_axis_text_uses_light_theme_colours():
-    """Keep chart titles, axis labels, and tick labels readable in light mode."""
     cumulative_returns = pd.DataFrame(
         {"ALPHA": [0.00, 0.10], "BETA": [0.00, -0.05]},
         index=pd.to_datetime(["2026-01-01", "2026-01-02"]),

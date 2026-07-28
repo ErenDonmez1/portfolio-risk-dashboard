@@ -8,10 +8,13 @@ def calculate_daily_returns(price_df: pd.DataFrame) -> pd.DataFrame:
     """Calculate each ticker's daily percentage return from closing prices.
 
     A daily return measures how much a price changed from one trading day to the
-    next. For example, a move from 100 to 110 is a 10% daily return.
+    next. Missing prices are not filled, and the final table keeps only dates
+    where every displayed asset has a valid return.
     """
     price_table = price_df.pivot(index="Date", columns="Ticker", values="Close")
-    daily_returns = price_table.pct_change().dropna()
+    # Use complete rows only: a missing price invalidates that asset's return,
+    # and the dashboard keeps dates where every displayed asset has a return.
+    daily_returns = price_table.pct_change(fill_method=None).dropna()
 
     return daily_returns
 

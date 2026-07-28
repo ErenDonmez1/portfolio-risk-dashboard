@@ -48,7 +48,6 @@ def load_price_data(file_path: str) -> pd.DataFrame:
 
 
 def _extract_close_prices(raw_data: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
-    """Extract adjusted close prices from yfinance output where available."""
     if raw_data.empty:
         raise ValueError("No market data was returned by yfinance.")
 
@@ -87,7 +86,6 @@ def _format_yfinance_price_data(
     raw_data: pd.DataFrame,
     tickers: list[str],
 ) -> pd.DataFrame:
-    """Convert yfinance price data into Date, Ticker, Close long format."""
     close_prices = _extract_close_prices(raw_data, tickers)
     close_prices.index.name = "Date"
 

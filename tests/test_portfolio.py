@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 from pandas.testing import assert_series_equal
@@ -39,6 +40,20 @@ def test_validate_weights_raises_value_error_when_weights_do_not_sum_to_one():
 
     with pytest.raises(ValueError, match="Portfolio weights must sum to 1"):
         validate_weights(weights, ["ALPHA", "BETA"])
+
+
+def test_validate_weights_rejects_negative_values():
+    with pytest.raises(ValueError, match="must not be negative"):
+        validate_weights({"ALPHA": 1.10, "BETA": -0.10}, ["ALPHA", "BETA"])
+
+
+@pytest.mark.parametrize("invalid_weight", [np.nan, np.inf, -np.inf])
+def test_validate_weights_rejects_non_finite_values(invalid_weight):
+    with pytest.raises(ValueError, match="must be finite numbers"):
+        validate_weights(
+            {"ALPHA": invalid_weight, "BETA": 0.0},
+            ["ALPHA", "BETA"],
+        )
 
 
 def test_calculate_portfolio_returns_from_simple_weights():

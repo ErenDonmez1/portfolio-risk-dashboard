@@ -70,6 +70,20 @@ def test_calculate_daily_returns_from_hand_calculated_prices():
     assert result["ALPHA"].tolist() == pytest.approx(expected_daily_returns)
 
 
+def test_calculate_daily_returns_does_not_fill_missing_prices():
+    price_data = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+            "Ticker": ["ALPHA", "ALPHA", "ALPHA"],
+            "Close": [100.0, None, 110.0],
+        }
+    )
+
+    result = calculate_daily_returns(price_data)
+
+    assert result.empty
+
+
 def test_calculate_cumulative_returns_from_simple_returns():
     """Compound daily returns into cumulative returns over time."""
     returns_data = pd.DataFrame(

@@ -30,7 +30,6 @@ from src.data_quality import (
 
 
 def make_quality_dataset() -> pd.DataFrame:
-    """Create a small dataset containing deliberate quality issues."""
     return pd.DataFrame(
         {
             "Date": pd.to_datetime(
@@ -69,7 +68,6 @@ def make_quality_dataset() -> pd.DataFrame:
 
 
 def make_clean_dataset() -> pd.DataFrame:
-    """Create clean two-asset prices with regular dates."""
     dates = pd.date_range("2026-01-01", periods=10, freq="D")
     return pd.DataFrame(
         {
@@ -84,7 +82,6 @@ def make_clean_dataset() -> pd.DataFrame:
 
 
 def test_validate_price_dataset_rejects_empty_and_missing_date_data():
-    """Reject empty inputs and datasets without the required Date column."""
     with pytest.raises(ValueError, match="dataset is empty"):
         validate_price_dataset(pd.DataFrame(columns=["Date", "Ticker", "Close"]))
 
@@ -95,7 +92,6 @@ def test_validate_price_dataset_rejects_empty_and_missing_date_data():
 
 
 def test_check_missing_values_by_column_counts_missing_cells():
-    """Report missing counts and percentages for every input column."""
     data = make_quality_dataset()
 
     result = check_missing_values_by_column(data)
@@ -106,7 +102,6 @@ def test_check_missing_values_by_column_counts_missing_cells():
 
 
 def test_detect_duplicate_dates_checks_asset_date_pairs():
-    """Flag a repeated date for one ticker without treating other assets as duplicates."""
     result = detect_duplicate_dates(make_quality_dataset())
 
     assert len(result) == 1
@@ -116,7 +111,6 @@ def test_detect_duplicate_dates_checks_asset_date_pairs():
 
 
 def test_detect_non_numeric_prices_excludes_missing_values():
-    """Separate text prices from genuinely missing prices."""
     result = detect_non_numeric_prices(make_quality_dataset())
 
     assert len(result) == 1
@@ -125,7 +119,6 @@ def test_detect_non_numeric_prices_excludes_missing_values():
 
 
 def test_detect_stale_prices_finds_consecutive_unchanged_run():
-    """Identify three equal prices in a row as one stale-price run."""
     result = detect_stale_prices(
         make_quality_dataset(), consecutive_observations=3
     )
@@ -137,7 +130,6 @@ def test_detect_stale_prices_finds_consecutive_unchanged_run():
 
 
 def test_calculate_daily_percentage_returns_uses_each_asset_history():
-    """Calculate returns separately by ticker and retain long format."""
     data = pd.DataFrame(
         {
             "Date": pd.to_datetime(
@@ -155,7 +147,6 @@ def test_calculate_daily_percentage_returns_uses_each_asset_history():
 
 
 def test_detect_extreme_returns_supports_z_score_and_iqr_methods():
-    """Flag a deliberate outlier and record both configured methods."""
     returns = pd.DataFrame(
         {
             "Date": pd.date_range("2026-01-01", periods=9, freq="D"),
@@ -176,7 +167,6 @@ def test_detect_extreme_returns_supports_z_score_and_iqr_methods():
 
 
 def test_identify_insufficient_observations_counts_valid_numeric_prices():
-    """Treat missing and text prices as unavailable observations."""
     result = identify_insufficient_observations(
         make_quality_dataset(), minimum_observations=6
     ).set_index("Ticker")
@@ -186,7 +176,6 @@ def test_identify_insufficient_observations_counts_valid_numeric_prices():
 
 
 def test_detect_irregular_date_gaps_uses_asset_specific_spacing():
-    """Flag a long gap while leaving regular daily observations unflagged."""
     result = detect_irregular_date_gaps(
         make_quality_dataset(), gap_multiplier=3.0
     )
@@ -198,7 +187,6 @@ def test_detect_irregular_date_gaps_uses_asset_specific_spacing():
 
 
 def test_compare_return_distributions_returns_ks_diagnostics():
-    """Compare mean, volatility and the full empirical distributions."""
     returns = pd.DataFrame(
         {
             "Date": pd.date_range("2026-01-01", periods=12, freq="D"),
@@ -218,7 +206,6 @@ def test_compare_return_distributions_returns_ks_diagnostics():
 
 
 def test_split_returns_and_rolling_volatility_prepare_chart_data():
-    """Prepare labelled distribution halves and annualised rolling volatility."""
     returns = pd.DataFrame(
         {
             "Date": pd.date_range("2026-01-01", periods=6, freq="D"),
@@ -236,7 +223,6 @@ def test_split_returns_and_rolling_volatility_prepare_chart_data():
 
 
 def test_asset_table_score_and_warnings_distinguish_clean_from_dirty_data():
-    """Produce asset summaries, warnings and a lower score for flagged data."""
     dirty_report = run_data_quality_analysis(
         make_quality_dataset(),
         minimum_observations=6,
@@ -256,8 +242,19 @@ def test_asset_table_score_and_warnings_distinguish_clean_from_dirty_data():
     assert dirty_report["warnings"]["Recommended Action"].str.len().min() > 0
 
 
+def test_insufficient_observations_require_asset_review():
+    report = run_data_quality_analysis(
+        make_clean_dataset(),
+        minimum_observations=20,
+        rolling_window=3,
+    )
+    asset = report["asset_quality"].set_index("Ticker").loc["AAA"]
+
+    assert asset["Observation Status"] == "Insufficient"
+    assert asset["Review Status"] == "Review"
+
+
 def test_build_helpers_create_downloadable_validation_rows():
-    """Build asset summaries, warnings and a flat CSV-ready report."""
     data = make_clean_dataset()
     returns = calculate_daily_percentage_returns(data)
     empty_diagnostics = {
@@ -283,7 +280,6 @@ def test_build_helpers_create_downloadable_validation_rows():
 
 
 def test_single_asset_and_short_histories_return_diagnostics_without_crashing():
-    """Handle a one-asset dataset with too little history for distribution tests."""
     data = pd.DataFrame(
         {
             "Date": pd.to_datetime(["2026-01-01", "2026-01-02"]),

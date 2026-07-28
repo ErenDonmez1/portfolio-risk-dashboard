@@ -18,9 +18,10 @@ I built this as a student portfolio project to practise applying data analysis a
 **Correlated Monte Carlo simulation**
 ![Correlated Monte Carlo simulation](assets/correlated-monte-carlo.png)
 
-The Data Quality Lab is available as a third dashboard tab. A dedicated lab
-screenshot can be added to this section after running the app with a deliberately
-imperfect research dataset.
+The Data Quality Lab reviews the selected dataset before risk results are
+interpreted. It summarises missing or suspicious observations, highlights
+assets that need review, compares return distributions and exports a CSV
+validation report.
 
 ## Features
 
@@ -56,9 +57,12 @@ imperfect research dataset.
 
 ```text
 app.py                  Streamlit dashboard UI
-src/data_quality.py     Reusable data validation and diagnostic functions
+src/data_quality.py     Data validation and analysis orchestration
+src/data_quality_stats.py   Return and statistical diagnostics
+src/data_quality_report.py  Quality scoring, warnings and report tables
+src/data_quality_ui.py      Streamlit rendering for the Data Quality Lab
 src/                    Calculation, chart and UI helper modules
-tests/                  pytest tests for the calculation logic
+tests/                  pytest tests
 data/sample_prices.csv  Synthetic demo price data
 assets/                 README screenshots
 ```
@@ -90,7 +94,8 @@ that data is corrupt.
   standard deviations are compared, followed by a two-sample
   Kolmogorov-Smirnov test.
 - The 0-100 quality score applies capped, weighted deductions across the checks.
-  It is a prioritisation aid and does not certify a dataset.
+  It is a screening aid, not a certification of correctness. A high score also
+  does not guarantee enough history for reliable modelling.
 
 ### Statistical Assumptions
 
@@ -108,7 +113,9 @@ market regime change.
 
 ## Risk Metrics
 
-**Returns** measure price changes over time. Cumulative returns are compounded rather than summed.
+**Returns** measure price changes over time. Cumulative returns are compounded
+rather than summed. Missing prices are not forward-filled; the dashboard uses
+dates with complete return observations across the displayed assets.
 
 **Volatility** measures how much returns vary. The dashboard annualises daily volatility using 252 trading days.
 
@@ -130,7 +137,7 @@ Windows PowerShell:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-.\.venv\Scripts\streamlit.exe run app.py
+python -m streamlit run app.py
 ```
 
 macOS/Linux:
@@ -139,7 +146,7 @@ macOS/Linux:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 Then open the local Streamlit URL shown in the terminal.
@@ -167,13 +174,15 @@ Run the test suite with:
 Windows PowerShell:
 
 ```powershell
-.\.venv\Scripts\pytest.exe tests
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 ```
 
 macOS/Linux:
 
 ```bash
-pytest tests
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 ```
 
 The tests include hand-calculated finance examples and synthetic data-quality
@@ -183,27 +192,26 @@ irregular gaps and outliers.
 Run only the Data Quality Lab tests with:
 
 ```powershell
-.\.venv\Scripts\pytest.exe tests\test_data_quality.py
+python -m pytest tests/test_data_quality.py -q
 ```
 
 ## Limitations
 
 - The demo data is synthetic.
-- yfinance data is optional and may be delayed or unavailable.
+- yfinance data is optional, may be delayed or unavailable, and remains subject
+  to Yahoo's terms of use.
 - The risk models are simplified for learning and portfolio-project purposes.
 - Data-quality thresholds are configurable screening rules, not universal
   definitions of bad data.
 - Stale prices, gaps and extreme returns may have legitimate market explanations.
 - The distribution-shift comparison does not control for dependence, seasonality,
   corporate actions or multiple statistical tests.
-- The quality score depends on chosen thresholds and should not replace source
-  reconciliation or documented research judgement.
 - Historical data and simulations do not predict future returns.
 - This project is not investment advice.
 
 ## Future Improvements
 
-- Add exportable reports
-- Add more portfolio optimisation tools
+- Add printable HTML or PDF reporting
+- Add separate integrity and research-readiness scores
 - Add factor exposure analysis
 - Deploy the dashboard online

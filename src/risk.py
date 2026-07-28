@@ -12,13 +12,21 @@ def calculate_historical_var(
 
     Value at Risk estimates a loss threshold from past returns. At 95%
     confidence, this historical method uses the 5th percentile daily return and
-    reports the loss as a positive number.
+    reports the loss as a positive number. Isolated NaN and infinite values are
+    excluded; the calculation fails if no finite observations remain.
     """
     if confidence_level <= 0 or confidence_level >= 1:
         raise ValueError("confidence_level must be between 0 and 1")
 
+    # Ignore isolated unusable observations, but never calculate a percentile
+    # when no finite return data remains.
+    usable_returns = pd.to_numeric(portfolio_returns, errors="coerce")
+    usable_returns = usable_returns[np.isfinite(usable_returns)]
+    if usable_returns.empty:
+        raise ValueError("portfolio_returns must contain at least one finite value")
+
     percentile = (1 - confidence_level) * 100
-    var_return = np.percentile(portfolio_returns, percentile)
+    var_return = np.percentile(usable_returns, percentile)
     historical_var = max(0.0, -var_return)
 
     return float(historical_var)

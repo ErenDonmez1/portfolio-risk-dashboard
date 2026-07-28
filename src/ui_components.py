@@ -426,7 +426,11 @@ def metric_card_grid(cards: list[tuple[str, str, str, str]]) -> None:
     )
 
 
-def styled_table(data, max_rows: int | None = None) -> None:
+def styled_table(
+    data,
+    max_rows: int | None = None,
+    show_index: bool = False,
+) -> None:
     """Render a compact table that matches the dashboard theme."""
     table_data = data.copy()
     if max_rows is not None:
@@ -436,6 +440,7 @@ def styled_table(data, max_rows: int | None = None) -> None:
         classes="styled-table",
         border=0,
         escape=True,
+        index=show_index,
     )
     st.markdown(
         f'<div class="styled-table-wrap">{html_table}</div>',
