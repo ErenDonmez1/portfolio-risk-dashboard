@@ -32,13 +32,13 @@ def calculate_daily_percentage_returns(
     working_data[price_column] = pd.to_numeric(
         working_data[price_column], errors="coerce"
     )
-    working_data = working_data.dropna(
-        subset=[date_column, asset_column, price_column]
-    )
+    working_data = working_data.dropna(subset=[date_column, asset_column])
     working_data = working_data.drop_duplicates(
         subset=[date_column, asset_column], keep="last"
     ).sort_values([asset_column, date_column])
 
+    # Keep missing prices in sequence so pct_change does not bridge across a
+    # missing observation and create a return for a period that was not observed.
     working_data["Return"] = working_data.groupby(asset_column)[
         price_column
     ].pct_change(fill_method=None)

@@ -19,6 +19,7 @@ from src.data_quality import (
     detect_duplicate_dates,
     detect_extreme_returns,
     detect_irregular_date_gaps,
+    detect_non_positive_prices,
     detect_non_numeric_prices,
     detect_stale_prices,
     generate_data_quality_warnings,
@@ -118,6 +119,28 @@ def test_detect_non_numeric_prices_excludes_missing_values():
     assert result.iloc[0]["Invalid Price"] == "bad"
 
 
+def test_detect_non_positive_prices_flags_zero_and_negative_only():
+    data = pd.DataFrame(
+        {
+            "Date": pd.date_range("2026-01-01", periods=4, freq="D"),
+            "Ticker": ["AAA"] * 4,
+            "Close": [100.0, 0.0, -5.0, "bad"],
+        }
+    )
+
+    result = detect_non_positive_prices(data)
+
+    assert list(result.columns) == ["Row", "Date", "Ticker", "Price"]
+    assert result["Price"].tolist() == [0.0, -5.0]
+
+
+def test_detect_non_positive_prices_returns_empty_for_positive_prices():
+    result = detect_non_positive_prices(make_clean_dataset())
+
+    assert result.empty
+    assert list(result.columns) == ["Row", "Date", "Ticker", "Price"]
+
+
 def test_detect_stale_prices_finds_consecutive_unchanged_run():
     result = detect_stale_prices(
         make_quality_dataset(), consecutive_observations=3
@@ -144,6 +167,53 @@ def test_calculate_daily_percentage_returns_uses_each_asset_history():
 
     assert result.loc["AAA", "Return"] == pytest.approx(0.10)
     assert result.loc["BBB", "Return"] == pytest.approx(-0.05)
+
+
+def test_daily_percentage_returns_do_not_bridge_missing_middle_price():
+    data = pd.DataFrame(
+        {
+            "Date": pd.date_range("2026-01-01", periods=4, freq="D"),
+            "Ticker": ["AAA"] * 4,
+            "Close": [100.0, np.nan, 110.0, 121.0],
+        }
+    )
+
+    result = calculate_daily_percentage_returns(data)
+
+    assert result["Date"].tolist() == [pd.Timestamp("2026-01-04")]
+    assert result["Return"].tolist() == pytest.approx([0.10])
+
+
+def test_daily_percentage_returns_keep_normal_consecutive_periods():
+    data = pd.DataFrame(
+        {
+            "Date": pd.date_range("2026-01-01", periods=3, freq="D"),
+            "Ticker": ["AAA"] * 3,
+            "Close": [100.0, 110.0, 121.0],
+        }
+    )
+
+    result = calculate_daily_percentage_returns(data)
+
+    assert result["Return"].tolist() == pytest.approx([0.10, 0.10])
+
+
+def test_daily_percentage_returns_keep_tickers_independent_around_missing_data():
+    data = pd.DataFrame(
+        {
+            "Date": list(pd.date_range("2026-01-01", periods=3, freq="D")) * 2,
+            "Ticker": ["AAA"] * 3 + ["BBB"] * 3,
+            "Close": [100.0, np.nan, 110.0, 200.0, 210.0, 220.5],
+        }
+    )
+
+    result = calculate_daily_percentage_returns(data)
+
+    assert result[result["Ticker"] == "AAA"].empty
+    assert result.loc[result["Ticker"] == "BBB", "Return"].tolist() == pytest.approx(
+        [0.05, 0.05]
+    )
+    assert not (result["Return"] == 0).any()
 
 
 def test_detect_extreme_returns_supports_z_score_and_iqr_methods():
@@ -260,6 +330,7 @@ def test_build_helpers_create_downloadable_validation_rows():
     empty_diagnostics = {
         "duplicate_dates": detect_duplicate_dates(data),
         "non_numeric_prices": detect_non_numeric_prices(data),
+        "non_positive_prices": detect_non_positive_prices(data),
         "stale_prices": detect_stale_prices(data),
         "extreme_returns": detect_extreme_returns(returns),
         "insufficient_observations": identify_insufficient_observations(
@@ -277,6 +348,32 @@ def test_build_helpers_create_downloadable_validation_rows():
 
     assert validation_report.iloc[0]["Record Type"] == "Overall"
     assert (validation_report["Record Type"] == "Asset summary").sum() == 2
+    asset_values = validation_report.loc[
+        validation_report["Record Type"] == "Asset summary", "Value"
+    ]
+    assert asset_values.str.contains("minimum_required=5").all()
+    assert asset_values.str.contains("observation_status=Sufficient").all()
+    assert asset_values.str.contains("non_positive=0").all()
+
+
+def test_non_positive_prices_trigger_review_warning_and_score_penalty():
+    dirty_data = make_clean_dataset()
+    dirty_data.loc[0, "Close"] = 0.0
+
+    dirty_report = run_data_quality_analysis(
+        dirty_data, minimum_observations=5, rolling_window=3
+    )
+    clean_report = run_data_quality_analysis(
+        make_clean_dataset(), minimum_observations=5, rolling_window=3
+    )
+
+    assert len(dirty_report["non_positive_prices"]) == 1
+    assert "Non-positive prices" in set(dirty_report["warnings"]["Issue"])
+    assert (
+        dirty_report["asset_quality"].set_index("Ticker").loc["AAA", "Review Status"]
+        == "Review"
+    )
+    assert dirty_report["score"] < clean_report["score"]
 
 
 def test_single_asset_and_short_histories_return_diagnostics_without_crashing():

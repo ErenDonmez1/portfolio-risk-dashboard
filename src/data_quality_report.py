@@ -31,10 +31,14 @@ def build_asset_quality_table(
             "Duplicate Count",
             subtract_one=True,
         )
+        non_positive_prices = _count_for_ticker(
+            diagnostics["non_positive_prices"], ticker
+        )
         issue_count = (
             int(ticker_prices.isna().sum())
             + int((ticker_prices.notna() & ticker_numeric.isna()).sum())
             + duplicate_rows
+            + non_positive_prices
             + _count_for_ticker(diagnostics["stale_prices"], ticker)
             + _count_for_ticker(diagnostics["extreme_returns"], ticker)
             + _count_for_ticker(diagnostics["irregular_gaps"], ticker)
@@ -50,6 +54,7 @@ def build_asset_quality_table(
                 "Non-Numeric Prices": int(
                     (ticker_prices.notna() & ticker_numeric.isna()).sum()
                 ),
+                "Non-Positive Prices": non_positive_prices,
                 "Duplicate Rows": duplicate_rows,
                 "Stale Runs": _count_for_ticker(
                     diagnostics["stale_prices"], ticker
@@ -65,6 +70,7 @@ def build_asset_quality_table(
                     if valid_observations < minimum_observations
                     else "Sufficient"
                 ),
+                "Minimum Required": minimum_observations,
                 "Review Status": "Review" if issue_count else "Pass",
             }
         )
@@ -91,6 +97,7 @@ def calculate_data_quality_score(
         (diagnostics["duplicate_dates"]["Duplicate Count"] - 1).clip(lower=0).sum()
     )
     non_numeric_count = len(diagnostics["non_numeric_prices"])
+    non_positive_count = len(diagnostics["non_positive_prices"])
     stale_observations = int(
         diagnostics["stale_prices"].get(
             "Stale Observations", pd.Series(dtype=float)
@@ -109,6 +116,7 @@ def calculate_data_quality_score(
         20 * min(missing_count / possible_cells, 1.0),
         15 * min(duplicate_rows / row_count, 1.0),
         15 * min(non_numeric_count / row_count, 1.0),
+        5 * min(non_positive_count / row_count, 1.0),
         15 * min(stale_observations / row_count, 1.0),
         10 * min(extreme_count / return_count, 1.0),
         10 * min(insufficient_count / asset_count, 1.0),
@@ -154,6 +162,16 @@ def generate_data_quality_warnings(
         "Non-numeric prices",
         "Text in a price column prevents reliable return calculations.",
         "Correct the source values or exclude the affected rows with an audit note.",
+    )
+    _append_count_warning(
+        warnings,
+        diagnostics["non_positive_prices"],
+        "High",
+        "Non-positive prices",
+        "Zero or negative prices are unsupported by standard percentage-return "
+        "calculations and can create invalid or misleading results.",
+        "Verify the source values and correct or exclude affected rows before "
+        "running portfolio risk calculations.",
     )
     _append_count_warning(
         warnings,
@@ -287,10 +305,13 @@ def build_validation_report(
                     f"valid={asset_row['Valid Prices']}; "
                     f"missing={asset_row['Missing Prices']}; "
                     f"non_numeric={asset_row['Non-Numeric Prices']}; "
+                    f"non_positive={asset_row['Non-Positive Prices']}; "
                     f"duplicates={asset_row['Duplicate Rows']}; "
                     f"stale_runs={asset_row['Stale Runs']}; "
                     f"extreme_returns={asset_row['Extreme Returns']}; "
-                    f"irregular_gaps={asset_row['Irregular Gaps']}"
+                    f"irregular_gaps={asset_row['Irregular Gaps']}; "
+                    f"observation_status={asset_row['Observation Status']}; "
+                    f"minimum_required={asset_row['Minimum Required']}"
                 ),
                 "Why It Matters": "Issue counts help prioritise manual validation.",
                 "Recommended Action": (

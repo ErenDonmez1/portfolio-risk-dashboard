@@ -272,6 +272,16 @@ if not data_quality_report["non_numeric_prices"].empty:
     render_data_quality_lab(data_quality_report)
     st.stop()
 
+if not data_quality_report["non_positive_prices"].empty:
+    st.error(
+        "Risk calculations are paused because the Close column contains zero "
+        "or negative prices. These values are unsupported by standard "
+        "percentage-return calculations. Review the flagged rows below and "
+        "correct the source file."
+    )
+    render_data_quality_lab(data_quality_report)
+    st.stop()
+
 try:
     daily_returns = calculate_daily_returns(price_data)
     cumulative_returns = calculate_cumulative_returns(daily_returns)

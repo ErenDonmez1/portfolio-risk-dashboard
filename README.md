@@ -83,9 +83,13 @@ that data is corrupt.
 - Duplicate dates are checked as duplicate `Ticker` and `Date` pairs because
   different assets are expected to share trading dates.
 - Non-numeric closing prices are reported separately from missing values.
+- Zero and negative closing prices are flagged as unsupported by the
+  dashboard's standard percentage-return calculations.
 - Stale prices are flagged when a price remains unchanged for a configurable
   number of consecutive observations.
 - Daily percentage returns are calculated independently for each ticker.
+  Missing middle prices are retained during the calculation so returns are not
+  silently bridged across an unobserved period.
 - Extreme returns are screened using configurable absolute z-scores and IQR
   fences. A flagged return may still be a valid market move or corporate action.
 - Observation counts, asset-specific date gaps and rolling volatility are
@@ -127,7 +131,11 @@ dates with complete return observations across the displayed assets.
 
 **Stress testing** applies user-defined or preset shocks to each holding. Shocks are handled as decimal returns in the calculation layer.
 
-**Monte Carlo simulation** is included as a simplified risk illustration, not a forecast. The correlated version simulates assets jointly using their historical covariance matrix.
+**Monte Carlo simulation** is included as a simplified risk illustration, not
+a forecast. The basic simulation requires at least two finite portfolio-return
+observations. The correlated version simulates assets jointly using their
+historical covariance matrix and estimates its inputs from complete, finite
+return rows across the required tickers.
 
 ## Run Locally
 
@@ -137,7 +145,7 @@ Windows PowerShell:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python -m streamlit run app.py
+python -m streamlit run app.py --server.address 127.0.0.1
 ```
 
 macOS/Linux:
@@ -150,6 +158,8 @@ python -m streamlit run app.py
 ```
 
 Then open the local Streamlit URL shown in the terminal.
+The standard `python -m streamlit run app.py` command is also supported when
+binding specifically to localhost is not required.
 
 ## CSV Format
 
@@ -204,6 +214,8 @@ python -m pytest tests/test_data_quality.py -q
 - Data-quality thresholds are configurable screening rules, not universal
   definitions of bad data.
 - Stale prices, gaps and extreme returns may have legitimate market explanations.
+- Zero and negative prices are treated as unsupported inputs rather than
+  evidence that a source is corrupt.
 - The distribution-shift comparison does not control for dependence, seasonality,
   corporate actions or multiple statistical tests.
 - Historical data and simulations do not predict future returns.

@@ -3,6 +3,8 @@
 import numpy as np
 import pandas as pd
 
+from src.portfolio import validate_weights
+
 
 def calculate_historical_var(
     portfolio_returns: pd.Series,
@@ -43,18 +45,31 @@ def calculate_stress_test_loss(
     the total portfolio would respond. It is a scenario analysis tool, not a
     prediction of what markets will do.
     """
-    if portfolio_value <= 0:
+    if not np.isfinite(portfolio_value) or portfolio_value <= 0:
         raise ValueError("portfolio_value must be greater than 0")
     if not weights:
         raise ValueError("weights must not be empty")
+    validate_weights(weights, list(weights))
 
     missing_shocks = [ticker for ticker in weights if ticker not in shocks]
     if missing_shocks:
         missing = ", ".join(missing_shocks)
         raise ValueError(f"Missing shock(s) for ticker(s): {missing}")
 
+    numeric_shocks = {}
+    for ticker in weights:
+        try:
+            numeric_shock = float(shocks[ticker])
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                f"Shock for {ticker} must be a finite number"
+            ) from error
+        if not np.isfinite(numeric_shock):
+            raise ValueError(f"Shock for {ticker} must be a finite number")
+        numeric_shocks[ticker] = numeric_shock
+
     portfolio_impact_percent = sum(
-        weights[ticker] * shocks[ticker] for ticker in weights
+        float(weights[ticker]) * numeric_shocks[ticker] for ticker in weights
     )
     portfolio_impact_value = portfolio_value * portfolio_impact_percent
     stressed_portfolio_value = portfolio_value + portfolio_impact_value
@@ -80,17 +95,28 @@ def run_monte_carlo_simulation(
     average return and volatility, so it is a risk illustration rather than a
     market forecast.
     """
-    if portfolio_returns.empty:
-        raise ValueError("portfolio_returns must not be empty")
     if num_simulations <= 0:
         raise ValueError("num_simulations must be greater than 0")
     if num_days <= 0:
         raise ValueError("num_days must be greater than 0")
-    if initial_value <= 0:
+    if not np.isfinite(initial_value) or initial_value <= 0:
         raise ValueError("initial_value must be greater than 0")
 
-    mean_return = portfolio_returns.mean()
-    return_volatility = portfolio_returns.std()
+    usable_returns = pd.to_numeric(portfolio_returns, errors="coerce")
+    usable_returns = usable_returns[np.isfinite(usable_returns)]
+    if len(usable_returns) < 2:
+        raise ValueError(
+            "At least two finite portfolio returns are required for simulation."
+        )
+
+    mean_return = float(usable_returns.mean())
+    return_volatility = float(usable_returns.std())
+    if not np.isfinite(mean_return):
+        raise ValueError("Historical mean return must be finite")
+    if not np.isfinite(return_volatility) or return_volatility < 0:
+        raise ValueError(
+            "Historical return standard deviation must be finite and non-negative"
+        )
 
     random_generator = np.random.default_rng(random_seed)
     simulated_returns = random_generator.normal(
@@ -102,6 +128,8 @@ def run_monte_carlo_simulation(
     starting_values = np.full((1, num_simulations), initial_value)
     simulated_values = initial_value * (1 + simulated_returns).cumprod(axis=0)
     simulation_paths = np.vstack([starting_values, simulated_values])
+    if not np.isfinite(simulation_paths).all():
+        raise ValueError("Simulation produced non-finite portfolio paths")
 
     columns = [f"Simulation {number}" for number in range(1, num_simulations + 1)]
 
@@ -130,7 +158,7 @@ def run_correlated_monte_carlo_simulation(
         raise ValueError("num_simulations must be greater than 0")
     if num_days <= 0:
         raise ValueError("num_days must be greater than 0")
-    if initial_value <= 0:
+    if not np.isfinite(initial_value) or initial_value <= 0:
         raise ValueError("initial_value must be greater than 0")
     if not weights:
         raise ValueError("weights must not be empty")
@@ -140,15 +168,28 @@ def run_correlated_monte_carlo_simulation(
         missing = ", ".join(missing_tickers)
         raise ValueError(f"Missing return data for ticker(s): {missing}")
 
+    validate_weights(weights, list(returns_df.columns))
     tickers = list(weights.keys())
-    total_weight = sum(weights[ticker] for ticker in tickers)
-    if abs(total_weight - 1.0) > 0.000001:
-        raise ValueError(f"Portfolio weights must sum to 1. Current sum: {total_weight}")
+    selected_returns = (
+        returns_df.loc[:, tickers]
+        .apply(pd.to_numeric, errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+        .dropna(how="any")
+    )
+    if len(selected_returns) < 2:
+        raise ValueError(
+            "At least two complete finite return rows are required for "
+            "correlated simulation."
+        )
 
-    selected_returns = returns_df[tickers]
     mean_returns = selected_returns.mean().to_numpy()
-    covariance_matrix = selected_returns.cov().to_numpy()
-    weight_array = np.array([weights[ticker] for ticker in tickers])
+    with np.errstate(over="ignore", invalid="ignore"):
+        covariance_matrix = selected_returns.cov().to_numpy()
+    if not np.isfinite(mean_returns).all():
+        raise ValueError("Historical asset mean returns must be finite")
+    if not np.isfinite(covariance_matrix).all():
+        raise ValueError("Historical covariance matrix must be finite")
+    weight_array = np.array([weights[ticker] for ticker in tickers], dtype=float)
 
     random_generator = np.random.default_rng(random_seed)
     simulated_asset_returns = random_generator.multivariate_normal(
@@ -164,6 +205,8 @@ def run_correlated_monte_carlo_simulation(
         axis=0
     )
     simulation_paths = np.vstack([starting_values, simulated_values])
+    if not np.isfinite(simulation_paths).all():
+        raise ValueError("Simulation produced non-finite portfolio paths")
 
     columns = [f"Simulation {number}" for number in range(1, num_simulations + 1)]
 
@@ -183,12 +226,17 @@ def calculate_simulation_summary(
     """
     if simulation_df.empty:
         raise ValueError("simulation_df must not be empty")
-    if initial_value <= 0:
+    if not np.isfinite(initial_value) or initial_value <= 0:
         raise ValueError("initial_value must be greater than 0")
     if confidence_level <= 0 or confidence_level >= 1:
         raise ValueError("confidence_level must be between 0 and 1")
 
-    final_values = simulation_df.iloc[-1]
+    final_values = pd.to_numeric(simulation_df.iloc[-1], errors="coerce")
+    final_values = final_values[np.isfinite(final_values)]
+    if final_values.empty:
+        raise ValueError(
+            "simulation_df must contain at least one finite final value"
+        )
     lower_percentile = (1 - confidence_level) * 100
     upper_percentile = confidence_level * 100
     lower_percentile_final_value = float(np.percentile(final_values, lower_percentile))
@@ -201,7 +249,7 @@ def calculate_simulation_summary(
     else:
         expected_shortfall = float(worst_tail_losses.mean())
 
-    return {
+    summary = {
         "median_final_value": float(final_values.median()),
         "lower_percentile_final_value": lower_percentile_final_value,
         "upper_percentile_final_value": upper_percentile_final_value,
@@ -209,3 +257,6 @@ def calculate_simulation_summary(
         "simulated_var": max(0.0, initial_value - lower_percentile_final_value),
         "expected_shortfall": expected_shortfall,
     }
+    if not all(np.isfinite(value) for value in summary.values()):
+        raise ValueError("Simulation summary produced a non-finite result")
+    return summary

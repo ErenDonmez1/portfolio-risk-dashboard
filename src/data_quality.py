@@ -37,6 +37,7 @@ __all__ = [
     "detect_duplicate_dates",
     "detect_extreme_returns",
     "detect_irregular_date_gaps",
+    "detect_non_positive_prices",
     "detect_non_numeric_prices",
     "detect_stale_prices",
     "generate_data_quality_warnings",
@@ -132,6 +133,30 @@ def detect_non_numeric_prices(
     preferred_columns = [
         column
         for column in ["Row", "Date", "Ticker", "Invalid Price"]
+        if column in invalid_rows.columns
+    ]
+    return invalid_rows.loc[:, preferred_columns].reset_index(drop=True)
+
+
+def detect_non_positive_prices(
+    price_df: pd.DataFrame,
+    price_column: str = "Close",
+) -> pd.DataFrame:
+    """Return numeric prices that are zero or negative.
+
+    Standard percentage-return calculations require strictly positive prices.
+    Text values are excluded here because they are reported by the separate
+    non-numeric-price diagnostic.
+    """
+    _require_columns(price_df, {price_column})
+    numeric_prices = pd.to_numeric(price_df[price_column], errors="coerce")
+    invalid_mask = numeric_prices.notna() & numeric_prices.le(0)
+    invalid_rows = price_df.loc[invalid_mask].copy()
+    invalid_rows.insert(0, "Row", invalid_rows.index)
+    invalid_rows["Price"] = numeric_prices.loc[invalid_mask]
+    preferred_columns = [
+        column
+        for column in ["Row", "Date", "Ticker", "Price"]
         if column in invalid_rows.columns
     ]
     return invalid_rows.loc[:, preferred_columns].reset_index(drop=True)
@@ -254,6 +279,7 @@ def run_data_quality_analysis(
     missing_values = check_missing_values_by_column(analysed_data)
     duplicate_dates = detect_duplicate_dates(analysed_data)
     non_numeric_prices = detect_non_numeric_prices(analysed_data)
+    non_positive_prices = detect_non_positive_prices(analysed_data)
     stale_prices = detect_stale_prices(
         analysed_data, consecutive_observations=stale_observations
     )
@@ -279,6 +305,7 @@ def run_data_quality_analysis(
         "missing_values": missing_values,
         "duplicate_dates": duplicate_dates,
         "non_numeric_prices": non_numeric_prices,
+        "non_positive_prices": non_positive_prices,
         "stale_prices": stale_prices,
         "extreme_returns": extreme_returns,
         "insufficient_observations": insufficient_observations,

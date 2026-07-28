@@ -95,6 +95,9 @@ def render_data_quality_lab(report: dict) -> None:
     stale_summary = _format_quality_table(
         report["stale_prices"], date_columns=["Start Date", "End Date"]
     )
+    non_positive_summary = _format_quality_table(
+        report["non_positive_prices"], date_columns=["Date"]
+    )
     extreme_summary = _format_quality_table(
         report["extreme_returns"],
         percent_columns=["Return", "IQR Lower Bound", "IQR Upper Bound"],
@@ -117,6 +120,14 @@ def render_data_quality_lab(report: dict) -> None:
             extreme_summary,
             "No return outliers crossed either selected threshold.",
         )
+
+    _render_diagnostic_table(
+        "Non-positive prices",
+        "Zero and negative prices are unsupported by the dashboard's standard "
+        "percentage-return calculations and require source validation.",
+        non_positive_summary,
+        "No zero or negative prices were detected.",
+    )
 
     with st.container(border=True):
         st.subheader("Asset-level quality")

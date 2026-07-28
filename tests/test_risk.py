@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -143,6 +144,37 @@ def test_calculate_stress_test_loss_raises_value_error_for_invalid_value():
         calculate_stress_test_loss(weights, shocks, portfolio_value=0)
 
 
+@pytest.mark.parametrize("portfolio_value", [float("nan"), float("inf")])
+def test_calculate_stress_test_loss_rejects_non_finite_portfolio_value(
+    portfolio_value,
+):
+    with pytest.raises(ValueError, match="portfolio_value must be greater than 0"):
+        calculate_stress_test_loss(
+            {"ALPHA": 1.0}, {"ALPHA": -0.10}, portfolio_value=portfolio_value
+        )
+
+
+@pytest.mark.parametrize("shock", [float("nan"), float("inf"), "bad"])
+def test_calculate_stress_test_loss_rejects_invalid_shocks(shock):
+    with pytest.raises(ValueError, match="Shock for ALPHA must be a finite number"):
+        calculate_stress_test_loss({"ALPHA": 1.0}, {"ALPHA": shock})
+
+
+@pytest.mark.parametrize(
+    "weights",
+    [
+        {"ALPHA": -0.1, "BETA": 1.1},
+        {"ALPHA": float("nan"), "BETA": 0.0},
+        {"ALPHA": 0.4, "BETA": 0.4},
+    ],
+)
+def test_calculate_stress_test_loss_reuses_portfolio_weight_validation(weights):
+    with pytest.raises(ValueError):
+        calculate_stress_test_loss(
+            weights, {"ALPHA": -0.10, "BETA": -0.10}
+        )
+
+
 def test_run_monte_carlo_simulation_returns_expected_shape():
     """Return one column per simulation and one extra row for the start value."""
     portfolio_returns = pd.Series([0.01, -0.02, 0.03, 0.00])
@@ -193,8 +225,33 @@ def test_run_monte_carlo_simulation_same_seed_gives_same_result():
 
 def test_run_monte_carlo_simulation_raises_value_error_for_empty_returns():
     """Raise a clear error when there are no historical returns."""
-    with pytest.raises(ValueError, match="portfolio_returns must not be empty"):
+    with pytest.raises(ValueError, match="At least two finite portfolio returns"):
         run_monte_carlo_simulation(pd.Series(dtype=float))
+
+
+def test_run_monte_carlo_simulation_rejects_one_finite_return():
+    with pytest.raises(ValueError, match="At least two finite portfolio returns"):
+        run_monte_carlo_simulation(pd.Series([0.01, np.nan]))
+
+
+def test_run_monte_carlo_simulation_rejects_only_invalid_returns():
+    with pytest.raises(ValueError, match="At least two finite portfolio returns"):
+        run_monte_carlo_simulation(pd.Series([np.nan, np.inf, -np.inf, "bad"]))
+
+
+def test_run_monte_carlo_simulation_drops_isolated_invalid_returns():
+    mixed = pd.Series([0.01, np.nan, -0.02, np.inf, 0.03])
+    cleaned = pd.Series([0.01, -0.02, 0.03])
+
+    mixed_result = run_monte_carlo_simulation(
+        mixed, num_simulations=4, num_days=5, random_seed=9
+    )
+    clean_result = run_monte_carlo_simulation(
+        cleaned, num_simulations=4, num_days=5, random_seed=9
+    )
+
+    assert_frame_equal(mixed_result, clean_result)
+    assert np.isfinite(mixed_result.to_numpy()).all()
 
 
 def test_run_monte_carlo_simulation_raises_value_error_for_bad_simulation_count():
@@ -300,6 +357,68 @@ def test_run_correlated_monte_carlo_simulation_raises_for_bad_weight_total():
 
     with pytest.raises(ValueError, match="Portfolio weights must sum to 1"):
         run_correlated_monte_carlo_simulation(returns_df, weights)
+
+
+@pytest.mark.parametrize(
+    "weights",
+    [
+        {"ALPHA": -0.10, "BETA": 1.10},
+        {"ALPHA": float("nan"), "BETA": 0.0},
+        {"ALPHA": float("inf"), "BETA": 0.0},
+    ],
+)
+def test_correlated_monte_carlo_rejects_invalid_weights(weights):
+    with pytest.raises(ValueError):
+        run_correlated_monte_carlo_simulation(make_two_asset_returns(), weights)
+
+
+def test_correlated_monte_carlo_rejects_missing_ticker_weight():
+    with pytest.raises(ValueError, match="Missing weight"):
+        run_correlated_monte_carlo_simulation(
+            make_two_asset_returns(), {"ALPHA": 1.0}
+        )
+
+
+def test_correlated_monte_carlo_removes_incomplete_rows():
+    returns = make_two_asset_returns()
+    returns.loc[1, "BETA"] = np.nan
+    cleaned = returns.drop(index=1)
+    weights = {"ALPHA": 0.60, "BETA": 0.40}
+
+    result = run_correlated_monte_carlo_simulation(
+        returns, weights, num_simulations=4, num_days=5, random_seed=11
+    )
+    expected = run_correlated_monte_carlo_simulation(
+        cleaned, weights, num_simulations=4, num_days=5, random_seed=11
+    )
+
+    assert_frame_equal(result, expected)
+    assert np.isfinite(result.to_numpy()).all()
+
+
+def test_correlated_monte_carlo_rejects_too_few_complete_rows():
+    returns = pd.DataFrame(
+        {"ALPHA": [0.01, np.nan], "BETA": [0.02, 0.03]}
+    )
+
+    with pytest.raises(ValueError, match="At least two complete finite return rows"):
+        run_correlated_monte_carlo_simulation(
+            returns, {"ALPHA": 0.5, "BETA": 0.5}
+        )
+
+
+def test_correlated_monte_carlo_rejects_non_finite_covariance():
+    returns = pd.DataFrame(
+        {
+            "ALPHA": [1e308, -1e308, 1e308],
+            "BETA": [1e308, -1e308, 1e308],
+        }
+    )
+
+    with pytest.raises(ValueError, match="covariance matrix must be finite"):
+        run_correlated_monte_carlo_simulation(
+            returns, {"ALPHA": 0.5, "BETA": 0.5}
+        )
 
 
 def test_run_correlated_monte_carlo_simulation_raises_for_bad_simulation_count():
@@ -423,3 +542,32 @@ def test_calculate_simulation_summary_from_hand_calculated_final_values():
     )
     assert result["simulated_var"] == pytest.approx(expected_simulated_var)
     assert result["expected_shortfall"] == pytest.approx(expected_shortfall)
+
+
+def test_calculate_simulation_summary_drops_isolated_invalid_final_values():
+    simulation_df = pd.DataFrame(
+        {
+            "Simulation 1": [1000, 1100],
+            "Simulation 2": [1000, np.nan],
+            "Simulation 3": [1000, 900],
+            "Simulation 4": [1000, np.inf],
+        }
+    )
+
+    result = calculate_simulation_summary(simulation_df, initial_value=1000)
+
+    assert all(np.isfinite(value) for value in result.values())
+    assert result["median_final_value"] == pytest.approx(1000)
+    assert result["probability_of_loss"] == pytest.approx(0.5)
+
+
+def test_calculate_simulation_summary_rejects_all_invalid_final_values():
+    simulation_df = pd.DataFrame(
+        {
+            "Simulation 1": [1000, np.nan],
+            "Simulation 2": [1000, np.inf],
+        }
+    )
+
+    with pytest.raises(ValueError, match="at least one finite final value"):
+        calculate_simulation_summary(simulation_df)
