@@ -1,5 +1,6 @@
 """Streamlit user interface for the Portfolio Risk Dashboard."""
 
+import pandas as pd
 import streamlit as st
 
 from src.charts import (
@@ -14,6 +15,7 @@ from src.data_loader import (
     load_price_data,
     parse_ticker_list,
 )
+from src.data_quality import run_data_quality_analysis
 from src.metrics import (
     calculate_annualised_volatility,
     calculate_cumulative_returns,
@@ -76,6 +78,282 @@ def cached_fetch_yfinance_price_data(
 ):
     """Fetch yfinance data through Streamlit's cache to reduce repeat calls."""
     return fetch_yfinance_price_data(list(tickers), period=period, interval=interval)
+
+
+def _format_quality_table(
+    data: pd.DataFrame,
+    percent_columns: list[str] | None = None,
+    date_columns: list[str] | None = None,
+) -> pd.DataFrame:
+    """Format diagnostic tables for compact dashboard display."""
+    display_data = data.copy()
+    for column in percent_columns or []:
+        if column in display_data.columns:
+            display_data[column] = display_data[column].map(
+                lambda value: "" if pd.isna(value) else f"{value:.2%}"
+            )
+    for column in date_columns or []:
+        if column in display_data.columns:
+            display_data[column] = pd.to_datetime(
+                display_data[column], errors="coerce"
+            ).dt.strftime("%Y-%m-%d")
+    return display_data
+
+
+def _render_diagnostic_table(
+    title: str,
+    explanation: str,
+    data: pd.DataFrame,
+    empty_message: str,
+) -> None:
+    """Render one data-quality result inside a consistent dashboard card."""
+    with st.container(border=True):
+        st.subheader(title)
+        st.caption(explanation)
+        if data.empty:
+            st.success(empty_message)
+        else:
+            ui.styled_table(data, max_rows=100)
+
+
+def render_data_quality_lab(report: dict) -> None:
+    """Render the Data Quality Lab from pre-calculated diagnostic outputs."""
+    st.subheader("Data Quality Lab")
+    st.caption(
+        "Automated checks help prioritise manual validation before modelling. "
+        "Flags are diagnostic evidence, not proof of data corruption or a "
+        "structural market change."
+    )
+
+    warning_count = len(report["warnings"])
+    score_tone = (
+        "green"
+        if report["score"] >= 90
+        else "amber"
+        if report["score"] >= 70
+        else "red"
+    )
+    date_range = (
+        f"{format_date(report['start_date'])} to {format_date(report['end_date'])}"
+        if pd.notna(report["start_date"]) and pd.notna(report["end_date"])
+        else "Unavailable"
+    )
+    ui.metric_card_grid(
+        [
+            (
+                "Quality Score",
+                f"{report['score']:.1f}/100",
+                "Weighted diagnostic screening score",
+                score_tone,
+            ),
+            (
+                "Dataset Size",
+                f"{report['row_count']:,} x {report['column_count']}",
+                "Rows x columns",
+                "blue",
+            ),
+            (
+                "Date Range",
+                date_range,
+                "Parsed observation period",
+                "slate",
+            ),
+            (
+                "Warnings",
+                str(warning_count),
+                "Items recommended for review",
+                "red" if warning_count else "green",
+            ),
+        ]
+    )
+
+    with st.container(border=True):
+        st.subheader("Validation summary")
+        st.caption(
+            "Each warning includes why the issue can affect research and a "
+            "suggested next validation step."
+        )
+        if report["warnings"].empty:
+            st.success("No automated warning thresholds were triggered.")
+        else:
+            ui.styled_table(report["warnings"], max_rows=50)
+
+    missing_summary = _format_quality_table(
+        report["missing_values"], percent_columns=["Missing Percent"]
+    )
+    duplicate_summary = _format_quality_table(
+        report["duplicate_dates"], date_columns=["Date"]
+    )
+    first_quality_column, second_quality_column = st.columns(2)
+    with first_quality_column:
+        _render_diagnostic_table(
+            "Missing values",
+            "Missing prices or identifiers can remove observations and make "
+            "asset histories difficult to compare.",
+            missing_summary,
+            "No missing values were detected.",
+        )
+    with second_quality_column:
+        _render_diagnostic_table(
+            "Duplicate asset dates",
+            "More than one price for the same ticker and date can double-count "
+            "a market period.",
+            duplicate_summary,
+            "No duplicate ticker-date pairs were detected.",
+        )
+
+    stale_summary = _format_quality_table(
+        report["stale_prices"], date_columns=["Start Date", "End Date"]
+    )
+    extreme_summary = _format_quality_table(
+        report["extreme_returns"],
+        percent_columns=["Return", "IQR Lower Bound", "IQR Upper Bound"],
+        date_columns=["Date"],
+    )
+    stale_column, extreme_column = st.columns(2)
+    with stale_column:
+        _render_diagnostic_table(
+            "Stale prices",
+            "Unchanged runs may be valid, but can also indicate illiquidity, "
+            "market closures, or an outdated feed.",
+            stale_summary,
+            "No stale-price runs crossed the selected threshold.",
+        )
+    with extreme_column:
+        _render_diagnostic_table(
+            "Extreme returns",
+            "Z-score and IQR flags highlight observations that may strongly "
+            "influence volatility and tail-risk estimates.",
+            extreme_summary,
+            "No return outliers crossed either selected threshold.",
+        )
+
+    with st.container(border=True):
+        st.subheader("Asset-level quality")
+        st.caption(
+            "This table combines the issue counts by ticker so manual review "
+            "can start with the most affected histories."
+        )
+        ui.styled_table(report["asset_quality"], max_rows=100)
+
+    shift_display = _format_quality_table(
+        report["distribution_shift"],
+        percent_columns=[
+            "First Half Mean",
+            "Second Half Mean",
+            "First Half Std",
+            "Second Half Std",
+        ],
+    )
+    with st.container(border=True):
+        st.subheader("Return-distribution comparison")
+        st.caption(
+            "The first and second halves are compared using means, standard "
+            "deviations, and a two-sample Kolmogorov-Smirnov test. A low "
+            "p-value is a research prompt, not proof of a regime change."
+        )
+        ui.styled_table(shift_display, max_rows=100)
+
+        return_halves = report["return_halves"]
+        if not return_halves.empty:
+            distribution_ticker = st.selectbox(
+                "Distribution ticker",
+                sorted(return_halves["Ticker"].unique()),
+                key="quality_distribution_ticker",
+            )
+            try:
+                import plotly.express as px
+            except ModuleNotFoundError:
+                st.error(
+                    "Plotly is not installed. Run "
+                    "`python -m pip install -r requirements.txt`."
+                )
+            else:
+                selected_returns = return_halves[
+                    return_halves["Ticker"] == distribution_ticker
+                ]
+                distribution_figure = px.histogram(
+                    selected_returns,
+                    x="Return",
+                    color="Period",
+                    barmode="overlay",
+                    opacity=0.62,
+                    histnorm="probability density",
+                    color_discrete_map={
+                        "First half": "#2563eb",
+                        "Second half": "#d97706",
+                    },
+                    title=f"{distribution_ticker}: first vs second half returns",
+                )
+                distribution_figure.update_layout(
+                    template="plotly_white",
+                    height=380,
+                    margin=dict(l=20, r=20, t=55, b=20),
+                    legend_title_text="Sample period",
+                    xaxis_title="Daily return",
+                    yaxis_title="Density",
+                )
+                distribution_figure.update_xaxes(tickformat=".1%")
+                st.plotly_chart(
+                    distribution_figure,
+                    width="stretch",
+                    config={"displaylogo": False},
+                )
+
+    with st.container(border=True):
+        st.subheader("Rolling volatility")
+        st.caption(
+            "Rolling annualised volatility shows how the variability of daily "
+            "returns changes through time. It describes the selected sample and "
+            "does not predict future volatility."
+        )
+        rolling_volatility = report["rolling_volatility"]
+        if rolling_volatility.empty:
+            st.info(
+                "There are too few valid returns for the selected rolling window."
+            )
+        else:
+            try:
+                import plotly.express as px
+            except ModuleNotFoundError:
+                st.error(
+                    "Plotly is not installed. Run "
+                    "`python -m pip install -r requirements.txt`."
+                )
+            else:
+                volatility_figure = px.line(
+                    rolling_volatility,
+                    x="Date",
+                    y="Rolling Volatility",
+                    color="Ticker",
+                    title="Rolling annualised return volatility",
+                )
+                volatility_figure.update_layout(
+                    template="plotly_white",
+                    height=400,
+                    margin=dict(l=20, r=20, t=55, b=20),
+                    legend_title_text="Ticker",
+                    xaxis_title="Date",
+                    yaxis_title="Annualised volatility",
+                )
+                volatility_figure.update_yaxes(tickformat=".1%")
+                st.plotly_chart(
+                    volatility_figure,
+                    width="stretch",
+                    config={"displaylogo": False},
+                )
+
+    st.download_button(
+        "Download CSV validation report",
+        data=report["validation_report"].to_csv(index=False).encode("utf-8"),
+        file_name="data_quality_validation_report.csv",
+        mime="text/csv",
+        help="Download the score, warnings, recommendations, and asset summaries.",
+    )
+    st.caption(
+        "The downloadable report records automated diagnostics only. Research "
+        "conclusions still require source checks and human judgement."
+    )
 
 
 ui.inject_global_styles()
@@ -146,6 +424,43 @@ else:
     except ValueError as error:
         st.sidebar.error(str(error))
 
+st.sidebar.divider()
+st.sidebar.subheader("Data Quality Settings")
+quality_z_score = st.sidebar.number_input(
+    "Extreme-return z-score",
+    min_value=1.0,
+    max_value=10.0,
+    value=3.0,
+    step=0.5,
+)
+quality_iqr_multiplier = st.sidebar.number_input(
+    "IQR multiplier",
+    min_value=0.5,
+    max_value=5.0,
+    value=1.5,
+    step=0.25,
+)
+quality_stale_observations = st.sidebar.number_input(
+    "Stale-price observations",
+    min_value=2,
+    max_value=20,
+    value=3,
+    step=1,
+)
+quality_minimum_observations = st.sidebar.number_input(
+    "Minimum observations",
+    min_value=2,
+    max_value=1000,
+    value=30,
+    step=10,
+)
+quality_rolling_window = st.sidebar.selectbox(
+    "Rolling volatility window",
+    [5, 20, 60],
+    index=1,
+    format_func=lambda days: f"{days} observations",
+)
+
 with st.container(border=True):
     st.markdown('<div class="panel-title">Data Source</div>', unsafe_allow_html=True)
     if data_source == "Demo data":
@@ -202,19 +517,43 @@ try:
             "Loaded yfinance market data for: "
             f"{', '.join(sorted(returned_tickers))}"
         )
-except ValueError as error:
+except (ValueError, pd.errors.EmptyDataError, pd.errors.ParserError) as error:
     st.error(str(error))
+    st.stop()
+
+try:
+    data_quality_report = run_data_quality_analysis(
+        price_data,
+        stale_observations=int(quality_stale_observations),
+        z_score_threshold=float(quality_z_score),
+        iqr_multiplier=float(quality_iqr_multiplier),
+        minimum_observations=int(quality_minimum_observations),
+        rolling_window=int(quality_rolling_window),
+    )
+except ValueError as error:
+    st.error(f"Data Quality Lab could not analyse this dataset: {error}")
+    st.stop()
+
+if not data_quality_report["non_numeric_prices"].empty:
+    st.error(
+        "Risk calculations are paused because the Close column contains "
+        "non-numeric values. Review the flagged rows below and correct the "
+        "source file."
+    )
+    render_data_quality_lab(data_quality_report)
     st.stop()
 
 try:
     daily_returns = calculate_daily_returns(price_data)
     cumulative_returns = calculate_cumulative_returns(daily_returns)
-except ValueError as error:
+except (TypeError, ValueError) as error:
     st.error(str(error))
+    render_data_quality_lab(data_quality_report)
     st.stop()
 
 if daily_returns.empty:
     st.error("At least two price dates are needed to calculate returns.")
+    render_data_quality_lab(data_quality_report)
     st.stop()
 
 tickers = list(daily_returns.columns)
@@ -270,7 +609,9 @@ with st.expander("Raw price data preview", expanded=False):
     preview_data["Date"] = preview_data["Date"].dt.strftime("%Y-%m-%d")
     ui.styled_table(preview_data)
 
-asset_tab, portfolio_tab = st.tabs(["Asset Risk", "Portfolio Analysis"])
+asset_tab, portfolio_tab, quality_tab = st.tabs(
+    ["Asset Risk", "Portfolio Analysis", "Data Quality Lab"]
+)
 
 with asset_tab:
     with st.container(border=True):
@@ -630,3 +971,6 @@ with portfolio_tab:
                 "constant mean and volatility, no transaction costs, and fixed "
                 "portfolio weights over the simulated period."
             )
+
+with quality_tab:
+    render_data_quality_lab(data_quality_report)

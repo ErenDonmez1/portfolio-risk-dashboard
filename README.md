@@ -4,7 +4,7 @@ A Streamlit dashboard for exploring portfolio risk from price data. The project 
 
 I built this as a student portfolio project to practise applying data analysis and engineering-style modelling to finance and risk analytics.
 
-## Dashboard Preview
+## Example Screenshots
 
 **Dashboard overview**
 ![Dashboard overview](assets/dashboard-overview.png)
@@ -18,9 +18,18 @@ I built this as a student portfolio project to practise applying data analysis a
 **Correlated Monte Carlo simulation**
 ![Correlated Monte Carlo simulation](assets/correlated-monte-carlo.png)
 
+The Data Quality Lab is available as a third dashboard tab. A dedicated lab
+screenshot can be added to this section after running the app with a deliberately
+imperfect research dataset.
+
 ## Features
 
 - Load demo data, upload a CSV, or fetch optional yfinance data
+- Validate market datasets in the Data Quality Lab
+- Detect missing, duplicate, non-numeric, stale and irregular observations
+- Flag extreme returns using configurable z-score and IQR rules
+- Compare return distributions with descriptive statistics and a two-sample KS test
+- Export a CSV validation report with warnings and recommended actions
 - Calculate daily and cumulative returns
 - Measure annualised volatility
 - Analyse drawdowns and maximum drawdown
@@ -38,6 +47,8 @@ I built this as a student portfolio project to practise applying data analysis a
 - pandas
 - NumPy
 - matplotlib
+- Plotly
+- SciPy
 - Streamlit
 - pytest
 
@@ -45,6 +56,7 @@ I built this as a student portfolio project to practise applying data analysis a
 
 ```text
 app.py                  Streamlit dashboard UI
+src/data_quality.py     Reusable data validation and diagnostic functions
 src/                    Calculation, chart and UI helper modules
 tests/                  pytest tests for the calculation logic
 data/sample_prices.csv  Synthetic demo price data
@@ -52,6 +64,47 @@ assets/                 README screenshots
 ```
 
 The calculation logic is kept separate from the Streamlit app so the finance functions can be tested directly.
+
+## Data Quality Lab
+
+The Data Quality Lab adds a research-focused validation stage before portfolio
+metrics are interpreted. Its purpose is to make common market-data problems
+visible, quantify their potential impact on an analysis, and record sensible
+follow-up actions. The output is an automated screening report, not a conclusion
+that data is corrupt.
+
+### Methodology
+
+- Missing values are counted by column.
+- Duplicate dates are checked as duplicate `Ticker` and `Date` pairs because
+  different assets are expected to share trading dates.
+- Non-numeric closing prices are reported separately from missing values.
+- Stale prices are flagged when a price remains unchanged for a configurable
+  number of consecutive observations.
+- Daily percentage returns are calculated independently for each ticker.
+- Extreme returns are screened using configurable absolute z-scores and IQR
+  fences. A flagged return may still be a valid market move or corporate action.
+- Observation counts, asset-specific date gaps and rolling volatility are
+  calculated for each ticker.
+- Each return history is split chronologically into two halves. Their means and
+  standard deviations are compared, followed by a two-sample
+  Kolmogorov-Smirnov test.
+- The 0-100 quality score applies capped, weighted deductions across the checks.
+  It is a prioritisation aid and does not certify a dataset.
+
+### Statistical Assumptions
+
+Returns are simple percentage returns calculated from ordered closing prices.
+Rolling daily volatility is annualised using the square-root-of-252 convention.
+Z-scores describe distance from the sample mean in sample standard deviations;
+they are sensitive to the outliers they are intended to flag. IQR fences are
+non-parametric but can still over-flag small samples.
+
+The KS test compares empirical return distributions without identifying the
+cause of a difference. Financial returns are time ordered and may not satisfy
+the independence assumptions used in simple two-sample inference. A low p-value
+is therefore a diagnostic warning for further investigation, not proof of a
+market regime change.
 
 ## Risk Metrics
 
@@ -123,13 +176,28 @@ macOS/Linux:
 pytest tests
 ```
 
-The tests include hand-calculated examples for the main finance calculations.
+The tests include hand-calculated finance examples and synthetic data-quality
+datasets containing deliberate missing values, duplicates, stale prices,
+irregular gaps and outliers.
+
+Run only the Data Quality Lab tests with:
+
+```powershell
+.\.venv\Scripts\pytest.exe tests\test_data_quality.py
+```
 
 ## Limitations
 
 - The demo data is synthetic.
 - yfinance data is optional and may be delayed or unavailable.
 - The risk models are simplified for learning and portfolio-project purposes.
+- Data-quality thresholds are configurable screening rules, not universal
+  definitions of bad data.
+- Stale prices, gaps and extreme returns may have legitimate market explanations.
+- The distribution-shift comparison does not control for dependence, seasonality,
+  corporate actions or multiple statistical tests.
+- The quality score depends on chosen thresholds and should not replace source
+  reconciliation or documented research judgement.
 - Historical data and simulations do not predict future returns.
 - This project is not investment advice.
 

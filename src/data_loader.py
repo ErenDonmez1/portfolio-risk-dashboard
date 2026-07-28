@@ -1,10 +1,15 @@
 """Data loading helpers for the Portfolio Risk Dashboard."""
 
+from pathlib import Path
+
 import pandas as pd
 
 
 REQUIRED_COLUMNS = {"Date", "Ticker", "Close"}
 MAX_YFINANCE_TICKERS = 8
+YFINANCE_CACHE_DIRECTORY = (
+    Path(__file__).resolve().parents[1] / ".cache" / "yfinance"
+)
 
 
 def parse_ticker_list(ticker_text: str) -> list[str]:
@@ -118,6 +123,12 @@ def fetch_yfinance_price_data(
         raise ValueError(
             "yfinance is not installed. Run pip install -r requirements.txt first."
         ) from error
+
+    # yfinance stores timezone and cookie metadata in SQLite files. Keeping the
+    # cache inside the project avoids permission errors from system cache paths.
+    YFINANCE_CACHE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    if hasattr(yf, "set_tz_cache_location"):
+        yf.set_tz_cache_location(str(YFINANCE_CACHE_DIRECTORY))
 
     raw_data = yf.download(
         tickers=clean_tickers,
